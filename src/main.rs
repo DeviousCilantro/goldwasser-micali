@@ -1,7 +1,8 @@
 use std::io;
 use std::io::Write;
 use num_primes::Generator;
-use rug::{Integer, rand};
+use rug::Integer;
+use ring::rand::{SystemRandom, SecureRandom};
 
 fn generate_keypair() -> ((Integer, Integer), (Integer, Integer)) {
     let n;
@@ -19,15 +20,26 @@ fn generate_keypair() -> ((Integer, Integer), (Integer, Integer)) {
     ((x, n), (p, q))
 }
 
+fn random_integer(rng: &SystemRandom, range: Integer) -> Integer {
+    loop {
+        let mut bytes = vec![0; ((range.significant_bits() + 7) / 8) as usize];
+        rng.fill(&mut bytes).unwrap();
+        let num = Integer::from_digits(&bytes, rug::integer::Order::Lsf);
+        if num < range {
+            return num;
+        }
+    }
+}
+
 fn encrypt_plaintext(plaintext: &Integer, pk: (Integer, Integer)) -> Vec<Integer> {
-    let mut rand = rand::RandState::new();
+    let rand = SystemRandom::new();
     let (x, n) = pk;
     let mut ciphertext: Vec<Integer> = Vec::new();
     let bit_string = format!("{plaintext:b}");
     for bit in bit_string.chars() {
         let mut yi;
         loop {
-            yi = n.clone().random_below(&mut rand);
+            yi = random_integer(&rand, n.clone());
             if yi.clone().gcd(&n) == 1 {
                 break;
             }
@@ -70,7 +82,11 @@ fn main() {
     let (pk, sk) = generate_keypair();
     let input_plaintext = Integer::from_str_radix(&hex::encode(input), 16).unwrap();
     let ciphertext = encrypt_plaintext(&input_plaintext, pk);
-    println!("Encrypted ciphertext: {:?}", &ciphertext);
+    let mut encoded_ciphertext = Vec::new();
+    for element in ciphertext.clone() {
+        encoded_ciphertext.push(base64::encode(element.to_string()));
+    }
+    println!("Encrypted ciphertext: {:?}", &encoded_ciphertext);
     let output_plaintext = decrypt_ciphertext(ciphertext, sk);
     assert_eq!(input_plaintext, output_plaintext, "Correctness not verified.");
     let output_plaintext = format!("{:X}", &output_plaintext);
